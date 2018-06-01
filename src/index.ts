@@ -29,6 +29,10 @@ const convertPaths = (conversionTargetRoot?: string) => {
 						const matches = rest.slice(0, rest.length - 2);
 						const modulePath = matches[matches.length - 1];
 
+						if (modulePath.match(/^\.{0,2}\//)) {
+							return wholeRequire;
+						}
+
 						try {
 							require(modulePath);
 							return wholeRequire;
