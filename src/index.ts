@@ -4,6 +4,7 @@ import * as Path from 'path';
 import * as recursive from 'recursive-readdir';
 import * as Fs from 'fs';
 import * as xregexp from 'xregexp';
+import * as Util from 'util';
 
 const HAS_BACKSLASH_SEPARATOR = Path.sep === '\\';
 
@@ -14,35 +15,43 @@ try {
 }
 
 const convertPaths = (conversionTargetRoot?: string) => {
-
 	if (!conversionTargetRoot) throw Error('Could not determine conversion target root');
 
-	recursive(conversionTargetRoot, ['!*.js'], (error, files) => {
-		files.forEach(file => {
-			const fileContent = Fs.readFileSync(file, 'utf-8');
-			const regex = xregexp(/require\(["']([^"']*)["']\)/);
-			const modifiedFileContent = xregexp.replace(
-				fileContent,
-				regex,
-				(wholeRequire: string, modulePath: string) => {
-					try {
-						require(modulePath);
-						return wholeRequire;
-					} catch (error) {
-						let newRequirePath = Path.relative(`${file}/..`, `${conversionTargetRoot}/${modulePath}`);
-						if (newRequirePath[0] !== '.') newRequirePath = './' + newRequirePath;
-						// Fix backslash path separator
-						if (HAS_BACKSLASH_SEPARATOR) {
-							newRequirePath = newRequirePath.replace(/\\/g, '/');
+	const convert = (ignorePattern: string, convertRegexp: RegExp, replacementFormat: string) => {
+		recursive(conversionTargetRoot, [ignorePattern], (error, files) => {
+			files.forEach(file => {
+				const fileContent = Fs.readFileSync(file, 'utf-8');
+				const regex = xregexp(convertRegexp);
+				const modifiedFileContent = xregexp.replace(
+					fileContent,
+					regex,
+					(wholeRequire: string, ...rest: string[]) => {
+						const matches = rest.slice(0, rest.length - 2);
+						const modulePath = matches[matches.length - 1];
+
+						try {
+							require(modulePath);
+							return wholeRequire;
+						} catch (error) {
+							let newRequirePath = Path.relative(`${file}/..`, `${conversionTargetRoot}/${modulePath}`);
+							if (newRequirePath[0] !== '.') newRequirePath = './' + newRequirePath;
+							// Fix backslash path separator
+							if (HAS_BACKSLASH_SEPARATOR) {
+								newRequirePath = newRequirePath.replace(/\\/g, '/');
+							}
+							matches[matches.length - 1] = newRequirePath;
+							return Util.format(replacementFormat, ...matches);
 						}
-						return `require("${newRequirePath}")`;
-					}
-				},
-				'all',
-			);
-			Fs.writeFileSync(file, modifiedFileContent);
+					},
+					'all',
+				);
+				Fs.writeFileSync(file, modifiedFileContent);
+			});
 		});
-	});
+	};
+
+	convert('!*.js', /require\(["']([^"']*)["']\)/, 'require("%s")');
+	convert('!*.d.ts', /import (.*?) from ["']([^"']*)["']/, 'import %s from "%s"');
 };
 
 
